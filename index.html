@@ -1,555 +1,536 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>BTC Terminal: Behind the Curtain</title>
+<title>BTC · Behind The Curtain</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=VT323&family=Chakra+Petch:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=VT323&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --room: #b9b09c;
-    --room-deep: #8f8672;
-    --bezel-hi: #e6dcc4;
-    --bezel: #cfc3a6;
-    --bezel-lo: #9e9276;
-    --phosphor: #39ff6a;
-    --phosphor-dim: #1f9e4299;
-    --phosphor-hot: #d9ffe2;
-    --glass: #021208;
-    --err: #ff5a4a;
-    box-sizing: border-box;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --page:#DCD6CB; --bg:#F1ECE2; --fg:#5A3200; --dim:#8E7658; --line:#CDBFA8;
+  --ok:#1C7560; --bad:#B03A1E; --bar:#E3DBCC;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --crt:"VT323","IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --page:#0A0703; --bg:#171006; --fg:#F4B860; --dim:#9A7440; --line:#3B2A15;
+    --ok:#7FD6BC; --bad:#F07A5C; --bar:#211709;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --room: #1c1814;
-      --room-deep: #0d0b09;
-      --bezel-hi: #8a8170;
-      --bezel: #6b6353;
-      --bezel-lo: #3d3830;
-    }
-  }
-  :root[data-theme="dark"] {
-    --room: #1c1814;
-    --room-deep: #0d0b09;
-    --bezel-hi: #8a8170;
-    --bezel: #6b6353;
-    --bezel-lo: #3d3830;
-  }
-  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
-  *, *::before, *::after { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body {
-    background: radial-gradient(ellipse at 50% 40%, var(--room) 0%, var(--room-deep) 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: clamp(8px, 3vw, 40px);
-    overflow: hidden;
-  }
+}
+:root[data-theme="dark"]{
+  --page:#0A0703; --bg:#171006; --fg:#F4B860; --dim:#9A7440; --line:#3B2A15;
+  --ok:#7FD6BC; --bad:#F07A5C; --bar:#211709;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{height:100%;margin:0;background:var(--page);color:var(--fg);font-family:var(--mono);font-size:15px;line-height:1.55}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
 
-  .monitor {
-    width: 100%;
-    max-width: 1040px;
-    height: 100%;
-    max-height: 820px;
-    display: flex;
-    flex-direction: column;
-    background: linear-gradient(160deg, var(--bezel-hi), var(--bezel) 40%, var(--bezel-lo));
-    border-radius: 22px;
-    padding: clamp(12px, 3.2vw, 42px) clamp(12px, 3.2vw, 42px) 0;
-    box-shadow:
-      0 30px 60px -20px rgba(0,0,0,.6),
-      inset 0 2px 0 rgba(255,255,255,.35),
-      inset 0 -3px 0 rgba(0,0,0,.25);
-    cursor: text;
-  }
+.term{max-width:900px;height:100%;margin:0 auto;display:flex;flex-direction:column;padding:12px}
+.win{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.titlebar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bar);border-bottom:1px solid var(--line);font-size:13px;color:var(--dim)}
+.titlebar i{width:11px;height:11px;border-radius:50%;background:var(--line);display:inline-block}
+.titlebar span{margin-left:8px}
+.screen{flex:1;min-height:0;overflow-y:auto;padding:16px 18px 24px}
+.ln{white-space:pre-wrap;word-break:break-word;min-height:1.55em}
+.dim{color:var(--dim)}
+.ok{color:var(--ok)}
+.bad{color:var(--bad)}
+.big{font-family:var(--crt);font-size:clamp(46px,11vw,96px);line-height:.95;margin:6px 0;letter-spacing:.02em}
+.big.two{color:var(--ok)}
 
-  .screen-well {
-    flex: 1;
-    min-height: 0;
-    padding: clamp(6px, 1.2vw, 14px);
-    border-radius: 34px / 40px;
-    background: #030704;
-    box-shadow: inset 0 4px 12px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.3);
-  }
+.prompt{display:flex;gap:10px;align-items:baseline}
+.prompt[hidden]{display:none}
+.prompt label{color:var(--dim);white-space:nowrap}
+.prompt input{flex:1;min-width:0;background:transparent;border:0;outline:none;padding:0;caret-color:var(--fg);color:var(--fg)}
+.prompt input::placeholder{color:var(--dim);opacity:.6}
 
-  .screen {
-    position: relative;
-    height: 100%;
-    border-radius: 28px / 34px;
-    overflow: hidden;
-    background: radial-gradient(ellipse at 50% 45%, #06260f 0%, var(--glass) 70%, #000602 100%);
-    animation: power-on 900ms cubic-bezier(.2,.8,.2,1) both;
-  }
-  @keyframes power-on {
-    0%   { transform: scale(1, .004); filter: brightness(6); }
-    45%  { transform: scale(1, .004); filter: brightness(6); }
-    70%  { transform: scale(1, 1.02); filter: brightness(2); }
-    100% { transform: scale(1, 1); filter: brightness(1); }
-  }
-  .screen.flash { animation: flash 520ms ease-out; }
-  @keyframes flash {
-    0% { filter: brightness(2.6) saturate(.6); }
-    100% { filter: brightness(1); }
-  }
-
-  .term {
-    position: absolute;
-    inset: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding: clamp(14px, 3vw, 34px) clamp(16px, 3.4vw, 40px);
-    font-family: "VT323", "Courier New", monospace;
-    font-size: clamp(19px, 2.3vw, 27px);
-    line-height: 1.12;
-    color: var(--phosphor);
-    text-shadow: 0 0 1px var(--phosphor), 0 0 7px rgba(40,255,100,.55), 0 0 18px rgba(0,200,70,.25);
-    scrollbar-width: none;
-  }
-  .term::-webkit-scrollbar { display: none; }
-
-  .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.12em; max-width: 68ch; }
-  .dim { color: var(--phosphor-dim); text-shadow: 0 0 6px rgba(20,230,90,.25); }
-  .hot { color: var(--phosphor-hot); text-shadow: 0 0 2px #fff, 0 0 10px rgba(140,255,170,.9), 0 0 26px rgba(20,230,90,.6); }
-  .err { color: var(--err); text-shadow: 0 0 6px rgba(255,80,30,.6); }
-  .key {
-    font-size: 1.9em;
-    letter-spacing: .06em;
-    color: var(--phosphor-hot);
-    text-shadow: 0 0 3px #fff, 0 0 14px rgba(140,255,170,.95), 0 0 40px rgba(0,210,80,.7);
-    margin: .3em 0;
-  }
-
-  .input-line { display: flex; white-space: pre; max-width: 68ch; }
-  .input-line[hidden] { display: none; }
-  #typed { white-space: pre-wrap; word-break: break-all; }
-  .cursor {
-    display: inline-block;
-    width: .55em;
-    height: 1em;
-    margin-left: 1px;
-    background: var(--phosphor);
-    box-shadow: 0 0 8px rgba(40,255,100,.7);
-    transform: translateY(.1em);
-    animation: blink 1s steps(1) infinite;
-  }
-  body:not(.focused) .cursor { background: transparent; outline: 1px solid var(--phosphor); animation: none; }
-  @keyframes blink { 50% { opacity: 0; } }
-
-  /* scanlines, vignette, glare */
-  .scan, .vignette, .glare { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
-  .scan {
-    background: repeating-linear-gradient(to bottom, rgba(0,0,0,.28) 0 1px, transparent 1px 3px);
-    animation: flicker 5s infinite;
-  }
-  .scan::after {
-    content: "";
-    position: absolute;
-    left: 0; right: 0; height: 22%;
-    background: linear-gradient(to bottom, transparent, rgba(80,255,130,.045), transparent);
-    animation: roll 7s linear infinite;
-  }
-  @keyframes roll { from { top: -25%; } to { top: 105%; } }
-  @keyframes flicker { 0%,100% { opacity: .95; } 48% { opacity: 1; } 50% { opacity: .85; } 52% { opacity: 1; } }
-  .vignette { box-shadow: inset 0 0 90px 20px rgba(0,0,0,.85), inset 0 0 12px rgba(40,255,100,.12); }
-  .glare { background: radial-gradient(ellipse 60% 40% at 30% 12%, rgba(255,255,255,.07), transparent 70%); }
-
-  .chin {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: clamp(10px, 1.8vw, 18px) 6px clamp(10px, 1.8vw, 18px);
-  }
-  .badge {
-    font-family: "Chakra Petch", "Arial Narrow", sans-serif;
-    font-weight: 600;
-    font-size: clamp(13px, 1.5vw, 16px);
-    letter-spacing: .12em;
-    color: rgba(0,0,0,.45);
-    text-shadow: 0 1px 0 rgba(255,255,255,.35);
-  }
-  .tip {
-    font-family: "Chakra Petch", "Arial Narrow", sans-serif;
-    font-size: 13px;
-    color: rgba(0,0,0,.45);
-    text-shadow: 0 1px 0 rgba(255,255,255,.3);
-  }
-  .led {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: #39ff6a;
-    box-shadow: 0 0 6px 2px rgba(40,255,100,.7), inset 0 -1px 2px rgba(0,0,0,.3);
-    flex: none;
-  }
-  .led.busy { animation: blink .18s steps(1) infinite; }
-
-  #kb {
-    position: absolute;
-    left: 0; bottom: 0;
-    width: 1px; height: 1px;
-    opacity: 0;
-    font-size: 16px;
-    border: 0; padding: 0;
-  }
-
-  @media (max-width: 560px) {
-    .monitor { border-radius: 16px; }
-    .tip { display: none; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .screen, .screen.flash, .scan, .scan::after, .cursor, .led.busy { animation: none; }
-  }
+.range{margin:12px 0 14px;border:1px dashed var(--line);border-radius:6px;padding:10px}
+.range[hidden]{display:none}
+.hud{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:14px;margin-bottom:8px}
+.hud b{font-weight:500}
+.keyline{font-family:var(--crt);font-size:26px;line-height:1.1;margin:0 0 8px;letter-spacing:.04em;overflow-x:auto;white-space:nowrap}
+.keyline .got{color:var(--ok)}
+.stage{position:relative;width:100%;aspect-ratio:16/9;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+canvas{display:block;width:100%;height:100%;touch-action:manipulation}
+.controls{display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:end;margin-top:10px}
+.ctl{display:block;font-size:14px}
+.ctl span{display:flex;justify-content:space-between}
+input[type=range]{width:100%;accent-color:var(--fg);height:26px;margin:2px 0 0}
+.fire{background:var(--fg);color:var(--bg);border:0;border-radius:4px;padding:9px 22px;font-weight:700;cursor:pointer}
+.fire:disabled{opacity:.35;cursor:not-allowed}
+.keys{font-size:13px;color:var(--dim);margin:8px 0 0}
+@media (max-width:560px){
+  body{font-size:14px}
+  .term{padding:0}
+  .win{border-radius:0;border-left:0;border-right:0}
+  .screen{padding:12px 12px 20px}
+  .controls{grid-template-columns:1fr 1fr}
+  .fire{grid-column:1/-1;padding:12px}
+  .keys{display:none}
+}
 </style>
 </head>
 <body>
-  <main class="monitor" id="monitor" aria-label="BTC computer terminal">
-    <div class="screen-well">
-      <div class="screen" id="screen">
-        <div class="term" id="term" role="log" aria-live="polite">
-          <div id="out"></div>
-          <div class="input-line" id="inputLine" hidden><span>&gt; </span><span id="typed"></span><span class="cursor" aria-hidden="true"></span></div>
-        </div>
-        <div class="scan"></div>
-        <div class="vignette"></div>
-        <div class="glare"></div>
-      </div>
+<div class="term">
+  <div class="win">
+    <div class="titlebar" aria-hidden="true"><i></i><i></i><i></i><span>btc@behind-the-curtain: ~</span></div>
+    <div class="screen" id="screen">
+      <div id="log" aria-live="polite"></div>
+      <div class="prompt" id="prompt" hidden><label for="cmd" id="pLabel">$</label><input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="send"></div>
     </div>
-    <div class="chin">
-      <span class="badge">BTC &nbsp;BEHIND THE CURTAIN</span>
-      <span class="tip" id="tip">Click the screen and start typing</span>
-      <span class="led" id="led" title="Power"></span>
+  </div>
+</div>
+
+<template id="rangeTpl">
+  <section class="range" aria-label="Key vault range">
+    <p class="keyline" id="keyline" aria-label="Launch key progress"></p>
+    <div class="hud">
+      <span>wind <b id="windVal">0</b></span>
+      <span>vaults cracked <b id="vaultVal">0/4</b></span>
+      <span>shots <b id="shotVal">0</b></span>
     </div>
-  </main>
-  <input id="kb" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" aria-label="Terminal input">
+    <div class="stage"><canvas id="cv" width="960" height="540" aria-label="Firing range with four key vaults"></canvas></div>
+    <div class="controls">
+      <label class="ctl"><span>angle <b id="angV">45°</b></span><input type="range" id="ang" min="0" max="180" step="1" value="45"></label>
+      <label class="ctl"><span>power <b id="powV">60</b></span><input type="range" id="pow" min="10" max="100" step="1" value="60"></label>
+      <button class="fire" id="fire" disabled>Fire</button>
+    </div>
+    <p class="keys">Left and right arrows aim, up and down set power, space fires. Hold Shift for fine steps.</p>
+  </section>
+</template>
 
 <script>
-(() => {
-  const outEl = document.getElementById('out');
-  const term = document.getElementById('term');
-  const typed = document.getElementById('typed');
-  const inputLine = document.getElementById('inputLine');
-  const kb = document.getElementById('kb');
-  const screen = document.getElementById('screen');
-  const led = document.getElementById('led');
-  const monitor = document.getElementById('monitor');
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = s => document.querySelector(s);
+const rnd = (a,b) => a + Math.random()*(b-a);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sleep = ms => new Promise(r => setTimeout(r, reduceMotion ? 0 : ms));
 
-  const PUZZLES = [
-    {
-      title: 'The shifted word',
-      body: [
-        'An intercepted transmission. Every letter was',
-        'pushed three places forward in the alphabet.',
-        '',
-        '      I  O  D  P  H',
-        '',
-        'Recover the original word.'
-      ],
-      a: 'RkxBTUU=',
-      hint: 'Move each letter three places back. I becomes F.',
-      frag: 'K7QX'
-    },
-    {
-      title: 'Machine talk',
-      body: [
-        'Eight switches per letter. Read them in order.',
-        '',
-        '      01001111  01010111  01001100',
-        '',
-        'What does the machine say?'
-      ],
-      a: 'T1dM',
-      hint: 'Each group is an ASCII code. 01001111 is 79, the letter O.',
-      frag: '3RFA'
-    },
-    {
-      title: 'The growing spiral',
-      body: [
-        'The sequence continues. What comes next?',
-        '',
-        '      1   1   2   3   5   8   13   __'
-      ],
-      a: 'MjE=',
-      hint: 'Each number is the sum of the two before it.',
-      frag: '9ZLM'
-    },
-    {
-      title: 'Something hidden',
-      body: [
-        'The last operator left the passphrase on this',
-        'machine, then hid the file. Search the system.',
-        '',
-        'LS lists files. CAT <file> reads one.'
-      ],
-      a: 'RUNITw==',
-      hint: 'Hidden files start with a dot. Try LS -A.',
-      frag: 'T4VE'
-    },
-    {
-      title: 'Dots and dashes',
-      body: [
-        'The final message arrived by telegraph.',
-        '',
-        '      --   ---   ---   -.',
-        '',
-        'Decode it.'
-      ],
-      a: 'TU9PTg==',
-      hint: 'Morse code. -- is M, --- is O, -. is N.',
-      frag: 'W8NC'
-    }
-  ];
+const KEY_WORDS = ['LOL','JK','LAUNCHPADS','SUCK'];
+const KEY_NORM = KEY_WORDS.join('');
 
-  const FILES = {
-    'readme.txt': ['BTC operator workstation. Behind the Curtain Systems.', 'Unauthorised access is logged. Mostly.'],
-    'log.txt': [
-      '03:12  curtain drawn',
-      '03:14  operator moved passphrase to a hidden file',
-      '03:15  operator wrote it backwards, as always'
-    ],
-    '.curtain': ['passphrase: O H C E']
-  };
+/* ================= Terminal ================= */
+const log = $('#log'), screen = $('#screen'), promptEl = $('#prompt'), cmd = $('#cmd');
+const down = () => { screen.scrollTop = screen.scrollHeight; };
 
-  const SAVE_KEY = 'btc-progress';
-  let state = { level: 0 };
-  try {
-    const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-    if (s && Number.isInteger(s.level) && s.level >= 0 && s.level <= 5) state = s;
-  } catch (e) {}
-  const save = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {} };
-
-  let busy = false, skip = false;
-  const history = []; let hIdx = 0;
-
-  const sleep = ms => new Promise(r => setTimeout(r, (skip || reduce) ? 0 : ms));
-  const scroll = () => { term.scrollTop = term.scrollHeight; };
-
-  async function out(text = '', cls = '') {
-    const d = document.createElement('div');
-    d.className = 'ln ' + cls;
-    outEl.appendChild(d);
-    if (reduce || skip || !text) { d.textContent = text; scroll(); return d; }
-    for (let i = 0; i < text.length; i += 2) {
-      if (skip) break;
-      d.textContent = text.slice(0, i + 2);
-      scroll();
-      await new Promise(r => setTimeout(r, 11));
-    }
-    d.textContent = text;
-    scroll();
-    return d;
-  }
-  async function outAll(lines, cls) { for (const l of lines) await out(l, cls); }
-
-  function setBusy(b) {
-    busy = b;
-    inputLine.hidden = b;
-    led.classList.toggle('busy', b);
-    if (!b) { skip = false; scroll(); }
-  }
-
-  function render() { typed.textContent = kb.value.toUpperCase(); scroll(); }
-
-  async function showPuzzle() {
-    const p = PUZZLES[state.level];
-    await out('');
-    await out(`SIGNAL ${state.level + 1} OF 5   ${p.title.toUpperCase()}`, 'hot');
-    await out('');
-    await outAll(p.body);
-    await out('');
-    await out('Type your answer and press Enter.', 'dim');
-  }
-
-  function fragments() {
-    return PUZZLES.map((p, i) => i < state.level ? p.frag : '____').join('-');
-  }
-
-  async function finale() {
-    await out('');
-    await out('All five signals decoded.', 'hot');
-    const bar = await out('');
-    for (let i = 0; i <= 24; i++) {
-      bar.textContent = 'DECRYPTING [' + '#'.repeat(i) + '.'.repeat(24 - i) + '] ' + Math.round(i / 24 * 100) + '%';
-      scroll();
-      await sleep(70);
-    }
-    await sleep(300);
-    screen.classList.remove('flash'); void screen.offsetWidth; screen.classList.add('flash');
-    await out('');
-    await out('THE CURTAIN RISES. YOUR BTC KEY IS', 'dim');
-    await out(PUZZLES.map(p => p.frag).join('-'), 'key');
-    await out('');
-    await out('Write it down. Type RESET to play again.', 'dim');
-  }
-
-  async function check(raw) {
-    if (state.level >= 5) {
-      await out('The curtain is already open. Type KEY to see it again.', 'dim');
-      return;
-    }
-    const norm = raw.toUpperCase().replace(/\s+/g, '');
-    let enc = '';
-    try { enc = btoa(norm); } catch (e) {}
-    const p = PUZZLES[state.level];
-    if (enc === p.a) {
-      screen.classList.remove('flash'); void screen.offsetWidth; screen.classList.add('flash');
-      await out('ACCESS GRANTED', 'hot');
-      await out(`Key fragment ${state.level + 1} of 5 recovered: ${p.frag}`);
-      state.level++;
-      save();
-      await sleep(500);
-      if (state.level === 5) await finale();
-      else await showPuzzle();
-    } else {
-      await out(`"${raw.toUpperCase()}" is not the answer to signal ${state.level + 1}.`, 'err');
-      await out('Type HINT if you are stuck, or HELP for commands.', 'dim');
-    }
-  }
-
-  async function handle(line) {
-    const parts = line.trim().split(/\s+/);
-    const cmd = (parts[0] || '').toUpperCase();
-    const arg = parts.slice(1).join(' ');
-    switch (cmd) {
-      case '': return;
-      case 'HELP':
-        await outAll([
-          'Commands:',
-          '  HELP          show this list',
-          '  LOOK          show the current signal again',
-          '  HINT          get a nudge on the current signal',
-          '  KEY           show the key fragments recovered so far',
-          '  LS            list files          LS -A  include hidden',
-          '  CAT <file>    read a file',
-          '  CLEAR         clear the screen',
-          '  RESET         erase progress and start over',
-          '',
-          'Anything else you type is treated as an answer.'
-        ]);
-        return;
-      case 'LOOK':
-        if (state.level >= 5) { await out('No signals left. Type KEY.', 'dim'); return; }
-        await showPuzzle(); return;
-      case 'HINT':
-        if (state.level >= 5) { await out('You no longer need hints.', 'dim'); return; }
-        await out('HINT: ' + PUZZLES[state.level].hint); return;
-      case 'KEY':
-      case 'STATUS':
-        await out(`Signals decoded: ${state.level} of 5`);
-        await out(fragments(), state.level >= 5 ? 'key' : 'hot');
-        return;
-      case 'CLEAR':
-      case 'CLS':
-        outEl.innerHTML = ''; return;
-      case 'LS':
-      case 'DIR': {
-        const all = /-a/i.test(arg);
-        const names = Object.keys(FILES).filter(n => all || !n.startsWith('.'));
-        await out(names.join('    '));
-        return;
-      }
-      case 'CAT':
-      case 'TYPE': {
-        if (!arg) { await out('Usage: CAT <file>', 'err'); return; }
-        const f = FILES[arg.toLowerCase()];
-        if (!f) { await out(`No file named ${arg}. Type LS to see files.`, 'err'); return; }
-        await outAll(f);
-        return;
-      }
-      case 'RESET':
-        if (arg.toUpperCase() !== 'CONFIRM') {
-          await out('This erases all progress. Type RESET CONFIRM to continue.', 'err');
-          return;
-        }
-        state = { level: 0 }; save();
-        outEl.innerHTML = '';
-        await out('Progress erased.', 'dim');
-        await showPuzzle();
-        return;
-      case 'SOLVE':
-      case 'ANSWER':
-        if (!arg) { await out('Usage: SOLVE <answer>, or just type the answer.', 'err'); return; }
-        await check(arg); return;
-      default:
-        await check(line.trim());
-    }
-  }
-
-  async function submit() {
-    if (busy) { skip = true; return; }
-    const v = kb.value;
-    kb.value = ''; render();
-    if (v.trim()) { history.push(v); }
-    hIdx = history.length;
-    setBusy(true);
-    await out('> ' + v.toUpperCase());
-    await handle(v);
-    setBusy(false);
-  }
-
-  kb.addEventListener('input', render);
-  kb.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
-    if (busy) return;
-    if (e.key === 'ArrowUp' && history.length) {
-      e.preventDefault(); hIdx = Math.max(0, hIdx - 1); kb.value = history[hIdx]; render();
-    } else if (e.key === 'ArrowDown' && history.length) {
-      e.preventDefault(); hIdx = Math.min(history.length, hIdx + 1); kb.value = history[hIdx] || ''; render();
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home') {
+async function say(text, cls='', delay=110){
+  const d = document.createElement('div');
+  d.className = 'ln ' + cls; d.textContent = text;
+  log.appendChild(d); down();
+  await sleep(delay);
+  return d;
+}
+async function dots(label, result, cls='', ms=420){
+  const d = await say(label + ' ', '', 0);
+  const steps = reduceMotion ? 0 : 6;
+  for(let i=0;i<steps;i++){ d.textContent += '.'; down(); await sleep(ms/steps); }
+  d.textContent += (steps ? ' ' : '... ') ;
+  const s = document.createElement('span'); s.className = cls || 'ok'; s.textContent = result; d.appendChild(s);
+  await sleep(80);
+}
+function ask(label, placeholder=''){
+  return new Promise(res => {
+    $('#pLabel').textContent = label;
+    cmd.value = ''; cmd.placeholder = placeholder;
+    promptEl.hidden = false; screen.appendChild(promptEl); down();
+    cmd.focus({preventScroll:true});
+    cmd.onkeydown = e => {
+      if(e.key !== 'Enter') return;
       e.preventDefault();
-    }
+      const v = cmd.value.trim();
+      promptEl.hidden = true;
+      const d = document.createElement('div'); d.className = 'ln';
+      const l = document.createElement('span'); l.className = 'dim'; l.textContent = label + ' ';
+      d.appendChild(l); d.appendChild(document.createTextNode(v));
+      log.appendChild(d); down();
+      res(v);
+    };
   });
-  kb.addEventListener('focus', () => document.body.classList.add('focused'));
-  kb.addEventListener('blur', () => document.body.classList.remove('focused'));
-  monitor.addEventListener('click', () => { if (busy) skip = true; kb.focus({ preventScroll: true }); });
-  document.addEventListener('keydown', e => {
-    if (document.activeElement !== kb && !e.metaKey && !e.ctrlKey && (e.key.length === 1 || e.key === 'Enter')) {
-      kb.focus({ preventScroll: true });
-    }
-  });
+}
+screen.addEventListener('click', e => {
+  if(!promptEl.hidden && !window.getSelection().toString() && !e.target.closest('.range')) cmd.focus({preventScroll:true});
+});
 
-  if (matchMedia('(pointer: coarse)').matches) {
-    document.getElementById('tip').textContent = 'Tap the screen to type';
+/* ================= Flow ================= */
+async function run(){
+  log.innerHTML = '';
+  await say('BTC launchpad 4.2.0', 'dim', 60);
+  await say('BTC stands for Behind The Curtain. not that one.', 'dim', 200);
+  await dots('drawing the curtain', 'ok');
+  await dots('syncing bonding curves', 'ok');
+  await dots('indexing 11,284 tokens launched today', 'ok');
+  await dots('loading influencer allowlist', 'ok');
+  await dots('hiding the dev wallet behind the curtain', 'ok');
+  await dots('checking vibes', 'immaculate');
+  await say('');
+  await say('ready. step right up and launch a coin.', '', 200);
+  await say('');
+
+  let name = '';
+  while(true){
+    name = await ask('token name:', 'e.g. Dog With Hat 2');
+    if(name.length >= 2 && name.length <= 32) break;
+    await say('name needs 2 to 32 characters. try again.', 'bad');
+  }
+  let ticker = '';
+  while(true){
+    ticker = (await ask('ticker:', 'e.g. HAT2')).replace(/^\$/,'').toUpperCase();
+    if(/^[A-Z0-9]{2,10}$/.test(ticker)) break;
+    await say('ticker needs 2 to 10 letters or numbers. try again.', 'bad');
+  }
+  const clones = Math.floor(rnd(14,212));
+  await dots(`checking if $${ticker} is taken`, `${clones} tokens already use it. proceeding anyway`, 'dim');
+  await dots('minting 1,000,000,000 $' + ticker, 'queued');
+  await say('');
+  await say('launch blocked: no launch key found.', 'bad', 260);
+  await say('the key is split across 4 vaults behind the curtain.');
+  await say('crack all 4 to decrypt it. set angle and power, mind the wind.');
+  await say('');
+
+  const rangeNode = $('#rangeTpl').content.firstElementChild.cloneNode(true);
+  log.appendChild(rangeNode);
+  bindRange();
+  await startRange();
+  await sleep(500);
+
+  await say('');
+  await say('all 4 vaults cracked. launch key decrypted:', 'ok', 250);
+  await say(KEY_WORDS.join('-'), 'ok', 350);
+  await say('');
+
+  while(true){
+    const k = await ask(`enter launch key to deploy $${ticker}:`, 'type the key above');
+    if(k.toUpperCase().replace(/[^A-Z]/g,'') === KEY_NORM) break;
+    await say('invalid key. it’s the one printed above.', 'bad');
   }
 
-  async function boot() {
-    setBusy(true);
-    await sleep(reduce ? 0 : 950);
-    await out('BTC BIOS 2.07  (c) Behind the Curtain Systems', 'dim');
-    const mem = await out('Memory test: 0K', 'dim');
-    for (let k = 0; k <= 640; k += 32) { mem.textContent = `Memory test: ${k}K`; await sleep(28); }
-    mem.textContent = 'Memory test: 640K OK';
-    await out('Loading BTC-OS ........ done', 'dim');
-    await out('');
-    await outAll([
-      String.raw` ____ _____ ____ `,
-      String.raw`| __ )_   _/ ___|`,
-      String.raw`|  _ \ | || |    `,
-      String.raw`| |_) || || |___ `,
-      String.raw`|____/ |_| \____|`
-    ], 'hot');
-    await out('');
-    await out('BEHIND THE CURTAIN', 'hot');
-    await out('Five signals stand between you and what lies behind the curtain.');
-    await out('Type HELP for commands.', 'dim');
-    if (state.level >= 5) {
-      await out('');
-      await out('Session restored. The curtain is open.', 'dim');
-      await out(PUZZLES.map(p => p.frag).join('-'), 'key');
-      await out('Type RESET to play again.', 'dim');
-    } else {
-      if (state.level > 0) { await out(''); await out(`Session restored. Signals decoded: ${state.level} of 5.`, 'dim'); }
-      await showPuzzle();
-    }
-    setBusy(false);
-    if (!matchMedia('(pointer: coarse)').matches) kb.focus({ preventScroll: true });
+  await say('');
+  await dots('signing transaction', 'ok');
+  await dots('seeding liquidity with 0.00 SOL', 'ok');
+  await dots('allocating 97% of supply to dev wallet', 'ok');
+  await dots('posting to 40 telegram groups', 'ok');
+  await dots('pulling back the curtain', 'ok');
+  await dots('deploying $' + ticker, 'wait', 'dim', 900);
+  await sleep(500);
+  await say('');
+  const a = await say('LOL JK', 'big', 500);
+  await say('LAUNCHPADS SUCK', 'big two', 600);
+  await say('pay no attention to the man behind the curtain. there was never a coin back here.', 'dim');
+  await say('');
+  await say(`nothing was launched and nothing was charged. ${name} lives on in your heart.`, 'dim');
+  await say('');
+  while(true){
+    const v = (await ask('$', 'type again to start over')).toLowerCase();
+    if(v === 'again' || v === 'restart') return run();
+    if(v === 'help') await say('commands: again');
+    else if(v) await say(`${v}: command not found. there is only again.`, 'dim');
   }
-  boot();
-})();
+}
+
+/* ================= Range ================= */
+const W=960, H=540, GRAV=380, WIND_K=7, SPEED=7.2, BARREL=20, RADIUS=34, CRACK=30, DT=1/120;
+let cv, ctx, terrC, DPR = Math.min(2, window.devicePixelRatio||1);
+let terrain = new Float32Array(W), player=null, vaults=[];
+let phase='idle', wind=0, shot=null, boom=null, particles=[], floats=[], lastTrail=null;
+let shake=0, shots=0, missStreak=0, onDone=null, rafOn=false, last=0;
+let C = {};
+
+function readColors(){
+  const s = getComputedStyle(document.documentElement);
+  ['bg','fg','dim','line','ok','bad'].forEach(k => C[k] = s.getPropertyValue('--'+k).trim());
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); if(terrC) paintTerrain(); });
+
+function bindRange(){
+  cv = $('#cv'); ctx = cv.getContext('2d');
+  cv.width = W*DPR; cv.height = H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+  terrC = document.createElement('canvas'); terrC.width = W*DPR; terrC.height = H*DPR;
+  terrC.getContext('2d').setTransform(DPR,0,0,DPR,0,0);
+  $('#ang').oninput = syncAim; $('#pow').oninput = syncAim;
+  $('#fire').onclick = () => { if(phase==='aim'){ syncAim(); fire(); } };
+}
+
+function genTerrain(){
+  const t = new Float32Array(W);
+  const base = rnd(H*.64,H*.74);
+  const waves = [[rnd(16,34),rnd(.004,.008),rnd(0,6.28)],[rnd(8,16),rnd(.012,.02),rnd(0,6.28)],[rnd(2,4),rnd(.04,.07),rnd(0,6.28)]];
+  const hc = rnd(W*.36,W*.5), hh = rnd(120,210), hw = rnd(60,110);
+  for(let x=0;x<W;x++){
+    let y = base; for(const [a,f,p] of waves) y += a*Math.sin(x*f+p);
+    y -= hh*Math.exp(-((x-hc)**2)/(2*hw*hw));
+    t[x] = clamp(y, H*.2, H-40);
+  }
+  return t;
+}
+function flatten(cx,r){
+  let s=0,n=0; for(let x=cx-r;x<=cx+r;x++){ s+=terrain[x]; n++; }
+  const avg = s/n;
+  for(let x=cx-r-12;x<=cx+r+12;x++){ if(x<0||x>=W) continue; const d=Math.abs(x-cx); const k=d<=r?1:1-(d-r)/12; terrain[x]=terrain[x]*(1-k)+avg*k; }
+}
+function groundY(x, half=12){ let m=H; for(let i=Math.max(0,Math.round(x)-half); i<=Math.min(W-1,Math.round(x)+half); i++) m=Math.min(m,terrain[i]); return m; }
+function carve(cx,cy,r){
+  for(let x=Math.max(0,Math.floor(cx-r)); x<=Math.min(W-1,Math.ceil(cx+r)); x++){
+    const dx=x-cx, dy=Math.sqrt(Math.max(0,r*r-dx*dx));
+    const top=terrain[x], cBot=cy+dy, cTop=cy-dy;
+    if(top>=cBot) continue;
+    terrain[x] = Math.min(H-6, top + (cBot-Math.max(top,cTop)));
+  }
+}
+
+function paintTerrain(){
+  const c = terrC.getContext('2d');
+  c.clearRect(0,0,W,H);
+  c.beginPath(); c.moveTo(0,H);
+  for(let x=0;x<W;x++) c.lineTo(x, terrain[x]);
+  c.lineTo(W,H); c.closePath();
+  c.fillStyle = C.bg; c.fill();
+  c.save(); c.clip();
+  c.strokeStyle = C.line; c.lineWidth = 1;
+  for(let y=Math.floor(H*.2); y<H; y+=7){ c.beginPath(); c.moveTo(0,y+.5); c.lineTo(W,y+.5); c.stroke(); }
+  c.restore();
+  c.strokeStyle = C.fg; c.lineWidth = 2; c.beginPath();
+  for(let x=0;x<W;x++){ x ? c.lineTo(x,terrain[x]) : c.moveTo(0,terrain[0]); }
+  c.stroke();
+}
+
+function launch(angle,power){
+  const a=angle*Math.PI/180, bx=player.x, by=player.y-14;
+  return { x:bx+Math.cos(a)*BARREL, y:by-Math.sin(a)*BARREL, vx:Math.cos(a)*power*SPEED, vy:-Math.sin(a)*power*SPEED, t:0, trail:[] };
+}
+function stepShot(s,dt){
+  s.vx += wind*WIND_K*dt; s.vy += GRAV*dt; s.x += s.vx*dt; s.y += s.vy*dt; s.t += dt;
+  if(s.x<-30 || s.x>W+30 || s.y>H+10 || s.t>14) return {type:'out'};
+  for(const v of vaults){
+    if(v.hit) continue;
+    const dx=s.x-v.x, dy=s.y-(v.y-10);
+    if(dx*dx+dy*dy < 16*16) return {type:'vault', x:s.x, y:s.y};
+  }
+  if(s.t>.15){ const dx=s.x-player.x, dy=s.y-(player.y-7); if(dx*dx+dy*dy<15*15) return {type:'ground', x:s.x, y:s.y}; }
+  const xi = s.x|0;
+  if(xi>=0 && xi<W && s.y>=terrain[xi]) return {type:'ground', x:s.x, y:s.y};
+  return null;
+}
+
+function startRange(){
+  readColors();
+  terrain = genTerrain();
+  const px = Math.round(rnd(60,120));
+  flatten(px,16);
+  // four vaults spread across the map, one in each quarter past the launcher
+  const slots = [[200,290],[430,560],[600,740],[790,910]];
+  const order = [0,1,2,3];
+  vaults = slots.map(([a,b],i) => { const x=Math.round(rnd(a,b)); flatten(x,10); return { x, y:0, hit:false, word:order[i], flash:0, fallFrom:null }; });
+  paintTerrain();
+  player = { x:px, y:groundY(px), angle:45, power:60 };
+  vaults.forEach(v => v.y = groundY(v.x, 8));
+  wind = Math.round(rnd(-3,3)*10)/10;
+  shot=null; boom=null; particles=[]; floats=[]; lastTrail=null; shots=0; missStreak=0;
+  $('#ang').value=45; $('#pow').value=60; syncAim();
+  updateHud();
+  phase='aim'; $('#fire').disabled=false;
+  if(!rafOn){ rafOn=true; last=performance.now(); requestAnimationFrame(frame); }
+  return new Promise(res => { onDone = res; });
+}
+
+function fire(){
+  shot = launch(player.angle, player.power);
+  phase = 'flight'; shots++;
+  $('#fire').disabled = true;
+  updateHud();
+}
+
+function crackNear(x,y){
+  let cracked = [];
+  for(const v of vaults){
+    if(v.hit) continue;
+    if(Math.hypot(v.x-x, (v.y-10)-y) < CRACK){ v.hit = true; v.flash = .6; cracked.push(v); }
+  }
+  return cracked;
+}
+
+function explode(r){
+  boom = {x:r.x, y:r.y, t:0};
+  const cracked = crackNear(r.x, r.y);
+  carve(r.x, r.y, RADIUS); paintTerrain();
+  for(let i=0;i<30;i++){ const a=rnd(0,Math.PI*2), v=rnd(60,240); particles.push({x:r.x,y:r.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-120,life:rnd(.4,1)}); }
+  if(!reduceMotion) shake = 7;
+  phase = 'boom';
+  if(cracked.length){
+    missStreak = 0;
+    cracked.forEach(v => {
+      floats.push({x:v.x, y:v.y-34, txt:KEY_WORDS[v.word], t:0});
+      say(`vault ${vaults.indexOf(v)+1} cracked. shard recovered: ${KEY_WORDS[v.word]}`, 'ok', 0);
+    });
+    updateHud();
+  } else {
+    missStreak++;
+    if(missStreak === 5) say('tip: your last shot’s path stays on screen. nudge from there.', 'dim', 0);
+  }
+}
+
+function endTurn(){
+  if(vaults.every(v=>v.hit)){
+    phase = 'over'; $('#fire').disabled = true;
+    const d = onDone; onDone = null; if(d) setTimeout(d, 600);
+    return;
+  }
+  wind = clamp(Math.round((wind + rnd(-1.5,1.5))*10)/10, -6, 6);
+  updateHud();
+  phase = 'aim'; $('#fire').disabled = false;
+}
+
+function update(dt){
+  if(phase==='flight' && shot){
+    let acc=dt, r=null;
+    while(acc>0 && !r){ r=stepShot(shot,DT); acc-=DT; if(!r && ((shot.t*120)|0)%2===0) shot.trail.push([shot.x,shot.y]); }
+    if(r){
+      lastTrail = shot.trail.slice(); shot = null;
+      if(r.type==='out'){ missStreak++; if(missStreak===5) say('tip: your last shot’s path stays on screen. nudge from there.', 'dim', 0); phase='settle'; }
+      else explode(r);
+    }
+  } else if(phase==='boom'){
+    boom.t += dt; if(boom.t > .5){ boom=null; phase='settle'; }
+  } else if(phase==='settle'){
+    let moving = false;
+    for(const o of [player, ...vaults]){
+      const g = o===player ? groundY(o.x) : groundY(o.x, 8);
+      if(o.y < g-.5){ o.y = Math.min(g, o.y + 240*dt); moving = true; } else o.y = g;
+    }
+    if(!moving && particles.length < 6) endTurn();
+  }
+  for(const p of particles){ p.vy+=GRAV*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; const xi=p.x|0; if(xi>=0&&xi<W&&p.y>terrain[xi]) p.life=0; }
+  particles = particles.filter(p=>p.life>0);
+  for(const f of floats) f.t += dt; floats = floats.filter(f=>f.t<1.6);
+  for(const v of vaults) v.flash = Math.max(0, v.flash-dt);
+  shake = Math.max(0, shake-dt*30);
+}
+
+function drawLauncher(){
+  const t = player;
+  ctx.save(); ctx.translate(t.x, t.y);
+  const a = t.angle*Math.PI/180;
+  ctx.strokeStyle = C.fg; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0,-14); ctx.lineTo(Math.cos(a)*BARREL, -14-Math.sin(a)*BARREL); ctx.stroke();
+  ctx.fillStyle = C.fg;
+  ctx.beginPath(); ctx.arc(0,-12,8,Math.PI,0); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-15,-4); ctx.lineTo(15,-4); ctx.lineTo(11,-12); ctx.lineTo(-11,-12); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = C.bg; ctx.fillRect(-16,-5,32,6);
+  ctx.strokeStyle = C.fg; ctx.lineWidth = 1.5; ctx.strokeRect(-16,-5,32,6);
+  ctx.restore();
+}
+
+function drawVault(v, i){
+  ctx.save(); ctx.translate(v.x, v.y);
+  const col = v.hit ? C.ok : C.fg;
+  const blink = v.flash>0 && ((v.flash*18)|0)%2;
+  ctx.strokeStyle = col; ctx.fillStyle = blink ? col : C.bg; ctx.lineWidth = 2;
+  ctx.fillRect(-12,-20,24,20); ctx.strokeRect(-12,-20,24,20);
+  if(v.hit){
+    // open lid
+    ctx.beginPath(); ctx.moveTo(-12,-20); ctx.lineTo(-18,-32); ctx.lineTo(6,-34); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(0,-10,3,0,Math.PI*2); ctx.fillStyle = col; ctx.fill();
+    ctx.fillRect(-1,-10,2,6);
+  }
+  ctx.fillStyle = col; ctx.font = '500 13px "IBM Plex Mono", monospace'; ctx.textAlign = 'center';
+  ctx.fillText(v.hit ? KEY_WORDS[v.word] : String(i+1), 0, v.hit ? -40 : -28);
+  ctx.restore();
+}
+
+function render(){
+  if(!ctx) return;
+  ctx.save();
+  if(shake>0) ctx.translate(rnd(-shake,shake), rnd(-shake,shake));
+  ctx.fillStyle = C.bg; ctx.fillRect(-10,-10,W+20,H+20);
+  ctx.fillStyle = C.line;
+  for(let y=30;y<H;y+=40) for(let x=30;x<W;x+=40) ctx.fillRect(x,y,1.5,1.5);
+  ctx.drawImage(terrC,0,0,W,H);
+  if(lastTrail && phase==='aim'){
+    ctx.fillStyle = C.dim;
+    for(let i=0;i<lastTrail.length;i+=3){ ctx.beginPath(); ctx.arc(lastTrail[i][0],lastTrail[i][1],1.5,0,Math.PI*2); ctx.fill(); }
+  }
+  vaults.forEach(drawVault);
+  if(player) drawLauncher();
+  if(phase==='aim' && player){
+    const a=player.angle*Math.PI/180, len=26+player.power*.5;
+    ctx.strokeStyle=C.dim; ctx.setLineDash([4,5]); ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(player.x+Math.cos(a)*BARREL, player.y-14-Math.sin(a)*BARREL); ctx.lineTo(player.x+Math.cos(a)*(BARREL+len), player.y-14-Math.sin(a)*(BARREL+len)); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if(shot){
+    ctx.strokeStyle=C.dim; ctx.lineWidth=2; ctx.beginPath();
+    shot.trail.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1])); ctx.stroke();
+    ctx.fillStyle=C.fg;
+    if(shot.y<0){ ctx.beginPath(); ctx.moveTo(shot.x,4); ctx.lineTo(shot.x-7,16); ctx.lineTo(shot.x+7,16); ctx.fill(); }
+    else { ctx.beginPath(); ctx.arc(shot.x,shot.y,4,0,Math.PI*2); ctx.fill(); }
+  }
+  if(boom){
+    const k=boom.t/.5, r=RADIUS*(.4+.8*Math.min(1,k*1.6));
+    ctx.strokeStyle=C.fg; ctx.globalAlpha=1-k; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(boom.x,boom.y,r,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(boom.x,boom.y,r*.55,0,Math.PI*2); ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+  ctx.fillStyle=C.fg;
+  for(const p of particles){ ctx.globalAlpha=Math.min(1,p.life*2); ctx.fillRect(p.x-1.5,p.y-1.5,3,3); }
+  ctx.globalAlpha=1;
+  ctx.font='400 30px VT323, "IBM Plex Mono", monospace'; ctx.textAlign='center';
+  for(const f of floats){ ctx.globalAlpha=1-f.t/1.6; ctx.fillStyle=C.ok; ctx.fillText(f.txt, f.x, f.y-f.t*30); }
+  ctx.globalAlpha=1;
+  ctx.restore();
+}
+
+function updateHud(){
+  if(!$('#windVal')) return;
+  const w = Math.abs(wind);
+  $('#windVal').textContent = w<.3 ? 'calm' : (wind>0 ? '→ ' : '← ') + w.toFixed(1);
+  const n = vaults.filter(v=>v.hit).length;
+  $('#vaultVal').textContent = n + '/4';
+  $('#shotVal').textContent = shots;
+  const kl = $('#keyline'); kl.innerHTML = '';
+  KEY_WORDS.forEach((word, i) => {
+    const got = vaults.some(v => v.hit && v.word === i);
+    const s = document.createElement('span');
+    if(got){ s.className='got'; s.textContent = word; } else { s.textContent = '█'.repeat(word.length); }
+    kl.appendChild(s);
+    if(i < KEY_WORDS.length-1) kl.appendChild(document.createTextNode('-'));
+  });
+  kl.setAttribute('aria-label', `Launch key: ${n} of 4 shards recovered`);
+}
+
+function syncAim(){
+  const a=+$('#ang').value, p=+$('#pow').value;
+  $('#angV').textContent=a+'°'; $('#powV').textContent=p;
+  if(player && phase!=='flight'){ player.angle=a; player.power=p; }
+}
+
+addEventListener('keydown', e => {
+  if(phase!=='aim' || !$('#ang')) return;
+  const tg = e.target.tagName;
+  if(e.target === cmd) return;
+  if(tg==='INPUT' && e.key!==' ') return;
+  if(tg==='BUTTON' && (e.key===' '||e.key==='Enter')) return;
+  const step = e.shiftKey ? 1 : 3;
+  if(e.key==='ArrowLeft') $('#ang').value = +$('#ang').value+step;
+  else if(e.key==='ArrowRight') $('#ang').value = +$('#ang').value-step;
+  else if(e.key==='ArrowUp') $('#pow').value = +$('#pow').value+step;
+  else if(e.key==='ArrowDown') $('#pow').value = +$('#pow').value-step;
+  else if(e.key===' '){ e.preventDefault(); syncAim(); fire(); return; }
+  else return;
+  e.preventDefault(); syncAim();
+});
+
+function frame(ts){ const dt=Math.min(.05,(ts-last)/1000); last=ts; update(dt); render(); requestAnimationFrame(frame); }
+
+readColors();
+run();
 </script>
 </body>
 </html>
