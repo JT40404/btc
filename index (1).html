@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BTC Terminal: Behind the Curtain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Chakra+Petch:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --room: #b9b09c;
+    --room-deep: #8f8672;
+    --bezel-hi: #e6dcc4;
+    --bezel: #cfc3a6;
+    --bezel-lo: #9e9276;
+    --phosphor: #39ff6a;
+    --phosphor-dim: #1f9e4299;
+    --phosphor-hot: #d9ffe2;
+    --glass: #021208;
+    --err: #ff5a4a;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --room: #1c1814;
+      --room-deep: #0d0b09;
+      --bezel-hi: #8a8170;
+      --bezel: #6b6353;
+      --bezel-lo: #3d3830;
+    }
+  }
+  :root[data-theme="dark"] {
+    --room: #1c1814;
+    --room-deep: #0d0b09;
+    --bezel-hi: #8a8170;
+    --bezel: #6b6353;
+    --bezel-lo: #3d3830;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse at 50% 40%, var(--room) 0%, var(--room-deep) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(8px, 3vw, 40px);
+    overflow: hidden;
+  }
+
+  .monitor {
+    width: 100%;
+    max-width: 1040px;
+    height: 100%;
+    max-height: 820px;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(160deg, var(--bezel-hi), var(--bezel) 40%, var(--bezel-lo));
+    border-radius: 22px;
+    padding: clamp(12px, 3.2vw, 42px) clamp(12px, 3.2vw, 42px) 0;
+    box-shadow:
+      0 30px 60px -20px rgba(0,0,0,.6),
+      inset 0 2px 0 rgba(255,255,255,.35),
+      inset 0 -3px 0 rgba(0,0,0,.25);
+    cursor: text;
+  }
+
+  .screen-well {
+    flex: 1;
+    min-height: 0;
+    padding: clamp(6px, 1.2vw, 14px);
+    border-radius: 34px / 40px;
+    background: #030704;
+    box-shadow: inset 0 4px 12px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.3);
+  }
+
+  .screen {
+    position: relative;
+    height: 100%;
+    border-radius: 28px / 34px;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 45%, #06260f 0%, var(--glass) 70%, #000602 100%);
+    animation: power-on 900ms cubic-bezier(.2,.8,.2,1) both;
+  }
+  @keyframes power-on {
+    0%   { transform: scale(1, .004); filter: brightness(6); }
+    45%  { transform: scale(1, .004); filter: brightness(6); }
+    70%  { transform: scale(1, 1.02); filter: brightness(2); }
+    100% { transform: scale(1, 1); filter: brightness(1); }
+  }
+  .screen.flash { animation: flash 520ms ease-out; }
+  @keyframes flash {
+    0% { filter: brightness(2.6) saturate(.6); }
+    100% { filter: brightness(1); }
+  }
+
+  .term {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: clamp(14px, 3vw, 34px) clamp(16px, 3.4vw, 40px);
+    font-family: "VT323", "Courier New", monospace;
+    font-size: clamp(19px, 2.3vw, 27px);
+    line-height: 1.12;
+    color: var(--phosphor);
+    text-shadow: 0 0 1px var(--phosphor), 0 0 7px rgba(40,255,100,.55), 0 0 18px rgba(0,200,70,.25);
+    scrollbar-width: none;
+  }
+  .term::-webkit-scrollbar { display: none; }
+
+  .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.12em; max-width: 68ch; }
+  .dim { color: var(--phosphor-dim); text-shadow: 0 0 6px rgba(20,230,90,.25); }
+  .hot { color: var(--phosphor-hot); text-shadow: 0 0 2px #fff, 0 0 10px rgba(140,255,170,.9), 0 0 26px rgba(20,230,90,.6); }
+  .err { color: var(--err); text-shadow: 0 0 6px rgba(255,80,30,.6); }
+  .key {
+    font-size: 1.9em;
+    letter-spacing: .06em;
+    color: var(--phosphor-hot);
+    text-shadow: 0 0 3px #fff, 0 0 14px rgba(140,255,170,.95), 0 0 40px rgba(0,210,80,.7);
+    margin: .3em 0;
+  }
+
+  .input-line { display: flex; white-space: pre; max-width: 68ch; }
+  .input-line[hidden] { display: none; }
+  #typed { white-space: pre-wrap; word-break: break-all; }
+  .cursor {
+    display: inline-block;
+    width: .55em;
+    height: 1em;
+    margin-left: 1px;
+    background: var(--phosphor);
+    box-shadow: 0 0 8px rgba(40,255,100,.7);
+    transform: translateY(.1em);
+    animation: blink 1s steps(1) infinite;
+  }
+  body:not(.focused) .cursor { background: transparent; outline: 1px solid var(--phosphor); animation: none; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* scanlines, vignette, glare */
+  .scan, .vignette, .glare { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
+  .scan {
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,.28) 0 1px, transparent 1px 3px);
+    animation: flicker 5s infinite;
+  }
+  .scan::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; height: 22%;
+    background: linear-gradient(to bottom, transparent, rgba(80,255,130,.045), transparent);
+    animation: roll 7s linear infinite;
+  }
+  @keyframes roll { from { top: -25%; } to { top: 105%; } }
+  @keyframes flicker { 0%,100% { opacity: .95; } 48% { opacity: 1; } 50% { opacity: .85; } 52% { opacity: 1; } }
+  .vignette { box-shadow: inset 0 0 90px 20px rgba(0,0,0,.85), inset 0 0 12px rgba(40,255,100,.12); }
+  .glare { background: radial-gradient(ellipse 60% 40% at 30% 12%, rgba(255,255,255,.07), transparent 70%); }
+
+  .chin {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: clamp(10px, 1.8vw, 18px) 6px clamp(10px, 1.8vw, 18px);
+  }
+  .badge {
+    font-family: "Chakra Petch", "Arial Narrow", sans-serif;
+    font-weight: 600;
+    font-size: clamp(13px, 1.5vw, 16px);
+    letter-spacing: .12em;
+    color: rgba(0,0,0,.45);
+    text-shadow: 0 1px 0 rgba(255,255,255,.35);
+  }
+  .tip {
+    font-family: "Chakra Petch", "Arial Narrow", sans-serif;
+    font-size: 13px;
+    color: rgba(0,0,0,.45);
+    text-shadow: 0 1px 0 rgba(255,255,255,.3);
+  }
+  .led {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #39ff6a;
+    box-shadow: 0 0 6px 2px rgba(40,255,100,.7), inset 0 -1px 2px rgba(0,0,0,.3);
+    flex: none;
+  }
+  .led.busy { animation: blink .18s steps(1) infinite; }
+
+  #kb {
+    position: absolute;
+    left: 0; bottom: 0;
+    width: 1px; height: 1px;
+    opacity: 0;
+    font-size: 16px;
+    border: 0; padding: 0;
+  }
+
+  @media (max-width: 560px) {
+    .monitor { border-radius: 16px; }
+    .tip { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .screen, .screen.flash, .scan, .scan::after, .cursor, .led.busy { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <main class="monitor" id="monitor" aria-label="BTC computer terminal">
+    <div class="screen-well">
+      <div class="screen" id="screen">
+        <div class="term" id="term" role="log" aria-live="polite">
+          <div id="out"></div>
+          <div class="input-line" id="inputLine" hidden><span>&gt; </span><span id="typed"></span><span class="cursor" aria-hidden="true"></span></div>
+        </div>
+        <div class="scan"></div>
+        <div class="vignette"></div>
+        <div class="glare"></div>
+      </div>
+    </div>
+    <div class="chin">
+      <span class="badge">BTC &nbsp;BEHIND THE CURTAIN</span>
+      <span class="tip" id="tip">Click the screen and start typing</span>
+      <span class="led" id="led" title="Power"></span>
+    </div>
+  </main>
+  <input id="kb" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" aria-label="Terminal input">
+
+<script>
+(() => {
+  const outEl = document.getElementById('out');
+  const term = document.getElementById('term');
+  const typed = document.getElementById('typed');
+  const inputLine = document.getElementById('inputLine');
+  const kb = document.getElementById('kb');
+  const screen = document.getElementById('screen');
+  const led = document.getElementById('led');
+  const monitor = document.getElementById('monitor');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const PUZZLES = [
+    {
+      title: 'The shifted word',
+      body: [
+        'An intercepted transmission. Every letter was',
+        'pushed three places forward in the alphabet.',
+        '',
+        '      I  O  D  P  H',
+        '',
+        'Recover the original word.'
+      ],
+      a: 'RkxBTUU=',
+      hint: 'Move each letter three places back. I becomes F.',
+      frag: 'K7QX'
+    },
+    {
+      title: 'Machine talk',
+      body: [
+        'Eight switches per letter. Read them in order.',
+        '',
+        '      01001111  01010111  01001100',
+        '',
+        'What does the machine say?'
+      ],
+      a: 'T1dM',
+      hint: 'Each group is an ASCII code. 01001111 is 79, the letter O.',
+      frag: '3RFA'
+    },
+    {
+      title: 'The growing spiral',
+      body: [
+        'The sequence continues. What comes next?',
+        '',
+        '      1   1   2   3   5   8   13   __'
+      ],
+      a: 'MjE=',
+      hint: 'Each number is the sum of the two before it.',
+      frag: '9ZLM'
+    },
+    {
+      title: 'Something hidden',
+      body: [
+        'The last operator left the passphrase on this',
+        'machine, then hid the file. Search the system.',
+        '',
+        'LS lists files. CAT <file> reads one.'
+      ],
+      a: 'RUNITw==',
+      hint: 'Hidden files start with a dot. Try LS -A.',
+      frag: 'T4VE'
+    },
+    {
+      title: 'Dots and dashes',
+      body: [
+        'The final message arrived by telegraph.',
+        '',
+        '      --   ---   ---   -.',
+        '',
+        'Decode it.'
+      ],
+      a: 'TU9PTg==',
+      hint: 'Morse code. -- is M, --- is O, -. is N.',
+      frag: 'W8NC'
+    }
+  ];
+
+  const FILES = {
+    'readme.txt': ['BTC operator workstation. Behind the Curtain Systems.', 'Unauthorised access is logged. Mostly.'],
+    'log.txt': [
+      '03:12  curtain drawn',
+      '03:14  operator moved passphrase to a hidden file',
+      '03:15  operator wrote it backwards, as always'
+    ],
+    '.curtain': ['passphrase: O H C E']
+  };
+
+  const SAVE_KEY = 'btc-progress';
+  let state = { level: 0 };
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (s && Number.isInteger(s.level) && s.level >= 0 && s.level <= 5) state = s;
+  } catch (e) {}
+  const save = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {} };
+
+  let busy = false, skip = false;
+  const history = []; let hIdx = 0;
+
+  const sleep = ms => new Promise(r => setTimeout(r, (skip || reduce) ? 0 : ms));
+  const scroll = () => { term.scrollTop = term.scrollHeight; };
+
+  async function out(text = '', cls = '') {
+    const d = document.createElement('div');
+    d.className = 'ln ' + cls;
+    outEl.appendChild(d);
+    if (reduce || skip || !text) { d.textContent = text; scroll(); return d; }
+    for (let i = 0; i < text.length; i += 2) {
+      if (skip) break;
+      d.textContent = text.slice(0, i + 2);
+      scroll();
+      await new Promise(r => setTimeout(r, 11));
+    }
+    d.textContent = text;
+    scroll();
+    return d;
+  }
+  async function outAll(lines, cls) { for (const l of lines) await out(l, cls); }
+
+  function setBusy(b) {
+    busy = b;
+    inputLine.hidden = b;
+    led.classList.toggle('busy', b);
+    if (!b) { skip = false; scroll(); }
+  }
+
+  function render() { typed.textContent = kb.value.toUpperCase(); scroll(); }
+
+  async function showPuzzle() {
+    const p = PUZZLES[state.level];
+    await out('');
+    await out(`SIGNAL ${state.level + 1} OF 5   ${p.title.toUpperCase()}`, 'hot');
+    await out('');
+    await outAll(p.body);
+    await out('');
+    await out('Type your answer and press Enter.', 'dim');
+  }
+
+  function fragments() {
+    return PUZZLES.map((p, i) => i < state.level ? p.frag : '____').join('-');
+  }
+
+  async function finale() {
+    await out('');
+    await out('All five signals decoded.', 'hot');
+    const bar = await out('');
+    for (let i = 0; i <= 24; i++) {
+      bar.textContent = 'DECRYPTING [' + '#'.repeat(i) + '.'.repeat(24 - i) + '] ' + Math.round(i / 24 * 100) + '%';
+      scroll();
+      await sleep(70);
+    }
+    await sleep(300);
+    screen.classList.remove('flash'); void screen.offsetWidth; screen.classList.add('flash');
+    await out('');
+    await out('THE CURTAIN RISES. YOUR BTC KEY IS', 'dim');
+    await out(PUZZLES.map(p => p.frag).join('-'), 'key');
+    await out('');
+    await out('Write it down. Type RESET to play again.', 'dim');
+  }
+
+  async function check(raw) {
+    if (state.level >= 5) {
+      await out('The curtain is already open. Type KEY to see it again.', 'dim');
+      return;
+    }
+    const norm = raw.toUpperCase().replace(/\s+/g, '');
+    let enc = '';
+    try { enc = btoa(norm); } catch (e) {}
+    const p = PUZZLES[state.level];
+    if (enc === p.a) {
+      screen.classList.remove('flash'); void screen.offsetWidth; screen.classList.add('flash');
+      await out('ACCESS GRANTED', 'hot');
+      await out(`Key fragment ${state.level + 1} of 5 recovered: ${p.frag}`);
+      state.level++;
+      save();
+      await sleep(500);
+      if (state.level === 5) await finale();
+      else await showPuzzle();
+    } else {
+      await out(`"${raw.toUpperCase()}" is not the answer to signal ${state.level + 1}.`, 'err');
+      await out('Type HINT if you are stuck, or HELP for commands.', 'dim');
+    }
+  }
+
+  async function handle(line) {
+    const parts = line.trim().split(/\s+/);
+    const cmd = (parts[0] || '').toUpperCase();
+    const arg = parts.slice(1).join(' ');
+    switch (cmd) {
+      case '': return;
+      case 'HELP':
+        await outAll([
+          'Commands:',
+          '  HELP          show this list',
+          '  LOOK          show the current signal again',
+          '  HINT          get a nudge on the current signal',
+          '  KEY           show the key fragments recovered so far',
+          '  LS            list files          LS -A  include hidden',
+          '  CAT <file>    read a file',
+          '  CLEAR         clear the screen',
+          '  RESET         erase progress and start over',
+          '',
+          'Anything else you type is treated as an answer.'
+        ]);
+        return;
+      case 'LOOK':
+        if (state.level >= 5) { await out('No signals left. Type KEY.', 'dim'); return; }
+        await showPuzzle(); return;
+      case 'HINT':
+        if (state.level >= 5) { await out('You no longer need hints.', 'dim'); return; }
+        await out('HINT: ' + PUZZLES[state.level].hint); return;
+      case 'KEY':
+      case 'STATUS':
+        await out(`Signals decoded: ${state.level} of 5`);
+        await out(fragments(), state.level >= 5 ? 'key' : 'hot');
+        return;
+      case 'CLEAR':
+      case 'CLS':
+        outEl.innerHTML = ''; return;
+      case 'LS':
+      case 'DIR': {
+        const all = /-a/i.test(arg);
+        const names = Object.keys(FILES).filter(n => all || !n.startsWith('.'));
+        await out(names.join('    '));
+        return;
+      }
+      case 'CAT':
+      case 'TYPE': {
+        if (!arg) { await out('Usage: CAT <file>', 'err'); return; }
+        const f = FILES[arg.toLowerCase()];
+        if (!f) { await out(`No file named ${arg}. Type LS to see files.`, 'err'); return; }
+        await outAll(f);
+        return;
+      }
+      case 'RESET':
+        if (arg.toUpperCase() !== 'CONFIRM') {
+          await out('This erases all progress. Type RESET CONFIRM to continue.', 'err');
+          return;
+        }
+        state = { level: 0 }; save();
+        outEl.innerHTML = '';
+        await out('Progress erased.', 'dim');
+        await showPuzzle();
+        return;
+      case 'SOLVE':
+      case 'ANSWER':
+        if (!arg) { await out('Usage: SOLVE <answer>, or just type the answer.', 'err'); return; }
+        await check(arg); return;
+      default:
+        await check(line.trim());
+    }
+  }
+
+  async function submit() {
+    if (busy) { skip = true; return; }
+    const v = kb.value;
+    kb.value = ''; render();
+    if (v.trim()) { history.push(v); }
+    hIdx = history.length;
+    setBusy(true);
+    await out('> ' + v.toUpperCase());
+    await handle(v);
+    setBusy(false);
+  }
+
+  kb.addEventListener('input', render);
+  kb.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
+    if (busy) return;
+    if (e.key === 'ArrowUp' && history.length) {
+      e.preventDefault(); hIdx = Math.max(0, hIdx - 1); kb.value = history[hIdx]; render();
+    } else if (e.key === 'ArrowDown' && history.length) {
+      e.preventDefault(); hIdx = Math.min(history.length, hIdx + 1); kb.value = history[hIdx] || ''; render();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home') {
+      e.preventDefault();
+    }
+  });
+  kb.addEventListener('focus', () => document.body.classList.add('focused'));
+  kb.addEventListener('blur', () => document.body.classList.remove('focused'));
+  monitor.addEventListener('click', () => { if (busy) skip = true; kb.focus({ preventScroll: true }); });
+  document.addEventListener('keydown', e => {
+    if (document.activeElement !== kb && !e.metaKey && !e.ctrlKey && (e.key.length === 1 || e.key === 'Enter')) {
+      kb.focus({ preventScroll: true });
+    }
+  });
+
+  if (matchMedia('(pointer: coarse)').matches) {
+    document.getElementById('tip').textContent = 'Tap the screen to type';
+  }
+
+  async function boot() {
+    setBusy(true);
+    await sleep(reduce ? 0 : 950);
+    await out('BTC BIOS 2.07  (c) Behind the Curtain Systems', 'dim');
+    const mem = await out('Memory test: 0K', 'dim');
+    for (let k = 0; k <= 640; k += 32) { mem.textContent = `Memory test: ${k}K`; await sleep(28); }
+    mem.textContent = 'Memory test: 640K OK';
+    await out('Loading BTC-OS ........ done', 'dim');
+    await out('');
+    await outAll([
+      String.raw` ____ _____ ____ `,
+      String.raw`| __ )_   _/ ___|`,
+      String.raw`|  _ \ | || |    `,
+      String.raw`| |_) || || |___ `,
+      String.raw`|____/ |_| \____|`
+    ], 'hot');
+    await out('');
+    await out('BEHIND THE CURTAIN', 'hot');
+    await out('Five signals stand between you and what lies behind the curtain.');
+    await out('Type HELP for commands.', 'dim');
+    if (state.level >= 5) {
+      await out('');
+      await out('Session restored. The curtain is open.', 'dim');
+      await out(PUZZLES.map(p => p.frag).join('-'), 'key');
+      await out('Type RESET to play again.', 'dim');
+    } else {
+      if (state.level > 0) { await out(''); await out(`Session restored. Signals decoded: ${state.level} of 5.`, 'dim'); }
+      await showPuzzle();
+    }
+    setBusy(false);
+    if (!matchMedia('(pointer: coarse)').matches) kb.focus({ preventScroll: true });
+  }
+  boot();
+})();
+</script>
+</body>
+</html>
